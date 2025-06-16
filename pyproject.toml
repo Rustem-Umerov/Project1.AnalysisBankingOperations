@@ -1,0 +1,19 @@
+[project]
+name = "project1-analysisbankingoperations"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Rustem Umerov",email = "rustem.umerov.00@yandex.ru"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+]
+
+[tool.poetry]
+packages = [{include = "project1"}]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
