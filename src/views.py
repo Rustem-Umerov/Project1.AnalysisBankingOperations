@@ -149,7 +149,16 @@ def read_json_file(json_file_path: Path) -> dict[str, Any]:
 
 
 def exchange_rates(list_currencies: list) -> dict:
-    """ """
+    """
+    :param list_currencies: Список валют.
+    :return: Словарь, где ключ — код валюты, значение — курс в рублях.
+
+    Получает курсы валют по отношению к российскому рублю.
+
+    Функция запрашивает у API CurrencyFreaks актуальные курсы валют
+    относительно доллара США, затем пересчитывает их в рубли.
+    Автоматически добавляет в список валют RUB, если его там нет.
+    """
 
     if "RUB" not in list_currencies:
         list_currencies.append("RUB")
@@ -190,8 +199,17 @@ def exchange_rates(list_currencies: list) -> dict:
     return rub_retes
 
 
-def stock_prices(list_stocks: list) -> list:
-    """ """
+def stock_prices(list_stocks: list, dol_price: float) -> list:
+    """
+    :param list_stocks: Список с акциями.
+    :param dol_price: Курс 1 доллар в рублях.
+
+    :return: Список словарей. Пример: {"stock": "AAPL", "price": 15778.5}
+
+    Получает цены на акции, которые указаны в списке.
+    Функция запрашивает у API AlphaVantage актуальные цены на акции в долларах США.
+    Далее цена в долларах США пересчитывается в рубли.
+    """
 
     url = "https://www.alphavantage.co/query"
     results = []
@@ -220,7 +238,7 @@ def stock_prices(list_stocks: list) -> list:
         price_str = global_quote.get("05. price")
         if price_str:
             try:
-                price = float(price_str)
+                price = float(price_str) * dol_price
             except ValueError:
                 print(f"Ошибка преобразования цены для {stock}: {price_str}")
                 continue
@@ -231,8 +249,36 @@ def stock_prices(list_stocks: list) -> list:
     return results
 
 
+def dollar_to_ruble_price(dict_exchange_rate: dict, currency_str: str = "USD") -> float:
+    """Функция получает словарь с курсами валют и возвращает значение по ключу 'USD'"""
+
+    if currency_str not in dict_exchange_rate:
+        raise ValueError(f"Нет курса для валюты: {currency_str}")
+    return float(dict_exchange_rate[currency_str])
+
+
 def output_final_result(date: str) -> str:
-    """ """
+    """
+    :param date: Дата и время в формате YYYY-MM-DD HH:MM:SS
+    :return: JSON-ответ.
+
+    Данная функция - это главная функция, которая объединяет второстепенные функции.
+    Функция получает дату и время в формате YYYY-MM-DD HH:MM:SS.
+
+    Далее функция greetings в зависимости от времени выводит приветствие.
+    Далее функция date_range функция определяет временной диапазон.
+    Далее функция read_excel_file читает excel-файл.
+    Далее функция data_from_time_range фильтрует по временному диапазону полученному из функции date_range.
+    Далее функция check_column проверяет DataFrame на наличие столбца "Сумма платежа".
+    Далее функция filter_negative_transactions фильтрует транзакции и оставляет в DataFrame только те строки,
+    где значение в колонке "Сумма платежа" < 0.
+    Далее функция cards_info выводит информацию о картах.
+    Далее функция top_transactions выводит топ транзакции, в данном случае топ 5.
+    Далее функция read_json_file читает json-файл.
+    Далее функция exchange_rates определят курс валют.
+    Далее функция dollar_to_ruble_price выводит цену за 1 даллар в рублях.
+    Далее функция stock_prices определяет стоимость акции.
+    """
 
     greeting = greetings(date)  # функция приветствия
 
@@ -260,15 +306,16 @@ def output_final_result(date: str) -> str:
 
     list_currencies = json_file["user_currencies"]  # выводит список валют
     currency_rates = exchange_rates(list_currencies)  # определят курс валют
+    dol_price = dollar_to_ruble_price(currency_rates)  # выводит цену за 1 даллар в рублях
 
-    # иже создаю итоговые словари с валютами
+    # Ниже создаю итоговые словари с валютами
     result_currency_rates = [
         {"currency": "USD", "rate": currency_rates.get("USD", "ошибка")},
         {"currency": "EUR", "rate": currency_rates.get("EUR", "ошибка")},
     ]
 
     list_stocks = json_file["user_stocks"]  # выводи список акции
-    stocks_prices = stock_prices(list_stocks)  # определяет стоимость акции
+    stocks_prices = stock_prices(list_stocks, dol_price)  # определяет стоимость акции
 
     # ниже вывожу итоговый результат
     final_result = {
@@ -280,6 +327,3 @@ def output_final_result(date: str) -> str:
     }
 
     return json.dumps(final_result, indent=4, ensure_ascii=False)
-
-
-print(output_final_result("20.05.2020 19:22:11"))
