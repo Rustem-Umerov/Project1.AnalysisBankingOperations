@@ -1,12 +1,16 @@
+import json
+import os
 from datetime import datetime, time
 from pathlib import Path
-import json
+from typing import Any
+
 import pandas as pd
 import requests
 from dotenv import load_dotenv
-import os
-from typing import Any
 
+from src.logging import get_logger
+
+logger = get_logger(__name__)
 
 SRC_DIR = Path(__file__).resolve().parent
 EXCEL_PATH = SRC_DIR.parent / "data" / "operations.xlsx"
@@ -22,12 +26,17 @@ def date_range(input_date: str) -> tuple[datetime, datetime]:
     - начало месяца (1-е число данного месяца)
     - дата из входной строки с обнулённым временем (полночь)."""
 
+    if not isinstance(input_date, str):
+        raise TypeError(f"input_date должен быть str, а получен {type(input_date).__name__}")
+
     try:
         date_obj = datetime.strptime(input_date, "%d.%m.%Y %H:%M:%S")
-    except ValueError:
-        raise ValueError(f"Неверный формат даты: {input_date}. Ожидается '%d.%m.%Y %H:%M:%S'")
+        logger.info("Полученная от пользователя дата: %s, преобразована в datetime.", input_date)
+    except ValueError as e:
+        raise ValueError(f"Неверный формат даты: {input_date}. Ожидается '%d.%m.%Y %H:%M:%S'") from e
 
     start_date = datetime(date_obj.year, date_obj.month, 1)
+    logger.info("Дата начала: %s и дата конца: %s успешно определена.", start_date, date_obj)
 
     return start_date, date_obj
 
@@ -41,66 +50,121 @@ def greetings(str_date_time: str) -> str:
       - Добрый вечер: с 18:00 до 23:00
       - Доброй ночи: с 23:00 до 05:00 (включая ночной интервал через полночь)"""
 
-    str_time = str_date_time.split()[1]
-    time_dt = datetime.strptime(str_time, "%H:%M:%S").time()
+    default = "Добрый день"
+    if not isinstance(str_date_time, str):
+        logger.error("Ожидали строку, получили %r", str_date_time)
+        return default
 
-    morning = time(5, 0, 0)
-    afternoon = time(12, 0, 0)
-    evening = time(18, 0, 0)
-    night = time(23, 0, 0)
+    if len(str_date_time.split(maxsplit=1)) != 2:
+        logger.error("Неверный формат входа: %r", str_date_time)
+        return default
 
-    if morning <= time_dt < afternoon:
-        result = "Доброе утро"
-    elif afternoon <= time_dt < evening:
-        result = "Добрый день"
-    elif evening <= time_dt < night:
-        result = "Добрый вечер"
-    else:
-        result = "Доброй ночи"
+    try:
+        str_time = str_date_time.split()[1]
+        time_dt = datetime.strptime(str_time, "%H:%M:%S").time()
+        logger.info("Время полученное от пользователя: %s, успешно преобразовано в datetime.",
+                    str_date_time
+                    )
 
-    return result
+        morning = time(5, 0, 0)
+        afternoon = time(12, 0, 0)
+        evening = time(18, 0, 0)
+        night = time(23, 0, 0)
+
+        if morning <= time_dt < afternoon:
+            result = "Доброе утро"
+        elif afternoon <= time_dt < evening:
+            result = "Добрый день"
+        elif evening <= time_dt < night:
+            result = "Добрый вечер"
+        else:
+            result = "Доброй ночи"
+
+        return result
+
+    except ValueError:
+        logger.exception("Ошибка обработки времени: %r", str_date_time)
+        return default
 
 
 def read_excel_file(excel_file_path: Path) -> pd.DataFrame:
     """Читает Excel-файл по указанному пути и возвращает DataFrame."""
 
     try:
-        return pd.read_excel(excel_file_path)
-    except Exception as e:
-        print(f"Ошибка при чтении Excel-файла: {e}")
+        result = pd.read_excel(excel_file_path)
+        logger.info("Excel-файл: %s, успешно прочитан.", excel_file_path)
+        return result
+    except FileNotFoundError:
+        logger.exception("Файл не найден: %s", excel_file_path)
+        raise
+    except pd.errors.ParserError:
+        logger.exception("Ошибка парсинга Excel-файла: %s", excel_file_path)
+        raise
+    except Exception:
+        logger.exception("Ошибка при чтении Excel-файла.")
         raise
 
 
-def data_from_time_range(dataframe: pd.DataFrame, time_range: tuple) -> pd.DataFrame:
+def data_from_time_range(
+    dataframe: pd.DataFrame, time_range: tuple, column: str = "Дата операции", date_fmt: str = "%d.%m.%Y %H:%M:%S"
+) -> pd.DataFrame:
     """Фильтрует строки DataFrame по столбцу 'Дата операции',
     возвращая только те, где дата лежит в диапазоне (start, end)."""
 
-    expected_column = "Дата операции"
+    try:
+        df = dataframe.copy()
+        df[column] = pd.to_datetime(df[column], format=date_fmt, errors="coerce")
 
-    df = dataframe.copy()
-    df[expected_column] = pd.to_datetime(df[expected_column], format="%d.%m.%Y %H:%M:%S")
+        start, end = pd.to_datetime(time_range[0]), pd.to_datetime(time_range[1])
 
-    start, end = pd.to_datetime(time_range[0]), pd.to_datetime(time_range[1])
+        mask = (df[column] >= start) & (df[column] <= end)
+        filtered_df: pd.DataFrame = df.loc[mask]
+        logger.info("DataFrame успешно отфильтрован.")
 
-    mask = (df[expected_column] >= start) & (df[expected_column] <= end)
-    filtered_df: pd.DataFrame = df.loc[mask]
+        return filtered_df
 
-    return filtered_df
+    except Exception:
+        logger.exception("Ошибка фильтрации по дате.")
+        raise
 
 
 def check_column(df: pd.DataFrame, expected_column: str = "Сумма платежа") -> None:
     """Проверяет DataFrame на наличие столбца. Название столбца функция принимает, как аргумент,
     по умолчанию expected_column = 'Сумма платежа'"""
 
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"DataFrame должен быть pd.DataFrame, а получен {type(df).__name__}")
+    if not isinstance(expected_column, str):
+        raise TypeError(f"Название колонки должно быть str, а получено {type(expected_column).__name__}")
     if expected_column not in df.columns:
         raise KeyError(f"Колонка '{expected_column}' не найдена")
 
 
-def filter_negative_transactions(df: pd.DataFrame) -> pd.DataFrame:
+def filter_negative_transactions(
+        df: pd.DataFrame, col_amount: str = "Сумма платежа") -> pd.DataFrame:
     """Оставляет в DataFrame только те строки, где значение в колонке col < 0."""
 
-    expected_column = "Сумма платежа"
-    return df[df[expected_column] < 0]
+    try:
+        df2 = df.copy()
+        mask = df2[col_amount] < 0
+        logger.info(
+            "filter_negative_transactions: из %d строк выбрано %d расходов по '%s'",
+            len(df2),
+            mask.sum(),
+            col_amount
+        )
+
+        return df2.loc[mask]
+
+    except KeyError:
+        logger.exception("Ошибка: отсутствует необходимый ключ в данных.")
+        raise
+    except TypeError:
+        logger.exception("Ошибка типа данных при фильтрации.")
+        raise
+    except Exception:
+        logger.exception("Неожиданная ошибка при фильтрации.")
+        raise
 
 
 def cards_info(dataframe: pd.DataFrame) -> list:
@@ -108,21 +172,30 @@ def cards_info(dataframe: pd.DataFrame) -> list:
     вычисляет кэшбэк (1₽ за каждые 100₽).
     Возвращает список словарей в виде: [{"Номер карты": ..., "Сумма потрачено": ..., "Кешбэк": ...}]"""
 
-    card_grouped = dataframe.groupby("Номер карты")["Сумма платежа"].sum()
+    if not isinstance(dataframe, pd.DataFrame):
+        raise TypeError(f"Ожидался pd.DataFrame, а получен {type(dataframe).__name__}")
 
-    card_grouped_abs = card_grouped.abs().round(2)
-    clean_cards = card_grouped_abs.index.astype(str)
-    clean_cards = clean_cards.str.lstrip("*")
+    try:
+        card_grouped = dataframe.groupby("Номер карты")["Сумма платежа"].sum()
+        logger.info("Транзакции успешно сгруппированы по номеру карты.")
 
-    result_df = pd.DataFrame(
-        {
-            "last_digits": clean_cards,
-            "total_spent": card_grouped_abs.values,
-            "cashback": (card_grouped_abs // 100).values,
-        }
-    )
+        card_grouped_abs = card_grouped.abs().round(2)
+        clean_cards = card_grouped_abs.index.astype(str)
+        clean_cards = clean_cards.str.lstrip("*")
 
-    return result_df.to_dict(orient="records")
+        result_df = pd.DataFrame(
+            {
+                "last_digits": clean_cards,
+                "total_spent": card_grouped_abs.values,
+                "cashback": (card_grouped_abs // 100).values,
+            }
+        )
+
+        return result_df.to_dict(orient="records")
+
+    except Exception:
+        logger.exception("Ошибка обработки транзакции.")
+        raise
 
 
 def top_transactions(
@@ -130,10 +203,16 @@ def top_transactions(
 ) -> list:
     """Выбирает топ транзакций из Excel-файла, сортируя по значению ключа 'Сумма платежа'"""
 
-    sorted_df = df.sort_values(by=expected_column, ascending=reverse)
-    top_transactions_list = sorted_df.head(number_best_transactions).to_dict("records")
+    try:
+        sorted_df = df.sort_values(by=expected_column, ascending=reverse)
+        top_transactions_list = sorted_df.head(number_best_transactions).to_dict("records")
+        logger.info("Топ %s транзакций определен.", number_best_transactions)
 
-    return top_transactions_list
+        return top_transactions_list
+
+    except Exception:
+        logger.exception("Ошибка получения топ транзакций.")
+        raise
 
 
 def read_json_file(json_file_path: Path) -> dict[str, Any]:
@@ -142,9 +221,10 @@ def read_json_file(json_file_path: Path) -> dict[str, Any]:
     try:
         with open(json_file_path) as f:
             data: dict[Any, Any] = json.load(f)
+            logger.info("Json-файл: %s, успешно прочитан.", json_file_path)
             return data
-    except Exception as e:
-        print(f"Ошибка при чтении Json-файла: {e}")
+    except Exception:
+        logger.exception("Ошибка при чтении Json-файла.")
         raise
 
 
@@ -178,24 +258,31 @@ def exchange_rates(list_currencies: list) -> dict:
         # Ниже проверяю статус ответа. Если статус-код указывает на ошибку, raise_for_status() выбросит исключение.
         response.raise_for_status()
 
-    except requests.exceptions.RequestException as e:
-        print(f"Ошибка при обращении к API конвертации: {e}")
+    except requests.exceptions.RequestException:
+        logger.exception("Ошибка при обращении к API конвертации.")
         return {}
 
-    # Преобразую ответ API из JSON в словарь.
-    result = response.json()
-    rates_key = result.get("rates", {})
-
-    usd_to_rub = float(rates_key["RUB"])
+    try:
+        result = response.json()
+        rates_key = result.get("rates", {})
+        usd_to_rub = float(rates_key["RUB"])
+    except (json.JSONDecodeError, KeyError, ValueError):
+        logger.exception("Ошибка обработки данных от API.")
+        return {}
 
     rub_retes = {}
 
     for currency, rate in rates_key.items():
-        if currency == "RUB":
-            rub_retes[currency] = 1.0
-        else:
-            rub_retes[currency] = round(1 / float(rate) * usd_to_rub, 2)
+        try:
+            if currency == "RUB":
+                rub_retes[currency] = 1.0
+            else:
+                rub_retes[currency] = round(1 / float(rate) * usd_to_rub, 2)
+        except (ValueError, ZeroDivisionError):
+            logger.warning("Ошибка расчёта курса для %r: %r", currency, rate)
+            continue
 
+    logger.info("Словарь, где ключ — код валюты, значение — курс в рублях, успешно сформирован.")
     return rub_retes
 
 
@@ -226,13 +313,17 @@ def stock_prices(list_stocks: list, dol_price: float) -> list:
             response = requests.get(url, params=params)
             # Ниже проверяю статус ответа. Если статус-код указывает на ошибку, raise_for_status() выбросит исключение.
             response.raise_for_status()
-
-            data = response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"Ошибка при обращении к API для {stock}: {e}")
+            logger.info("Запрос к API успешен для %r", stock)
+        except requests.exceptions.RequestException:
+            logger.exception("Ошибка при выполнении запроса к %r.", stock)
             continue
+
+        try:
+            data = response.json()
+            logger.debug("Получен ответ JSON для %r: %s", stock, data)
         except json.JSONDecodeError:
-            raise
+            logger.exception("Невалидный JSON в ответе API для %r", stock)
+            continue
 
         global_quote = data.get("Global Quote", {})
         price_str = global_quote.get("05. price")
@@ -240,21 +331,29 @@ def stock_prices(list_stocks: list, dol_price: float) -> list:
             try:
                 price = float(price_str) * dol_price
             except ValueError:
-                print(f"Ошибка преобразования цены для {stock}: {price_str}")
+                logger.exception("Ошибка преобразования цены для %r: %r.", stock, price_str)
                 continue
             results.append({"stock": stock, "price": price})
         else:
-            print(f"Данные для {stock} не получены корректно: {data}")
+            logger.warning("Данные для %r не получены корректно: %s", stock, data)
 
+    logger.info("Итоговый список словарей с ценами по акциям успешно сформирован.")
     return results
 
 
 def dollar_to_ruble_price(dict_exchange_rate: dict, currency_str: str = "USD") -> float:
     """Функция получает словарь с курсами валют и возвращает значение по ключу 'USD'"""
 
+    if not isinstance(exchange_rates, dict):
+        raise TypeError(f"exchange_rates должен быть dict, а получен {type(exchange_rates).__name__}")
+    if not isinstance(currency_str, str):
+        raise TypeError(f"currency должен быть str, а получен {type(currency_str).__name__}")
+
     if currency_str not in dict_exchange_rate:
         raise ValueError(f"Нет курса для валюты: {currency_str}")
-    return float(dict_exchange_rate[currency_str])
+    result = float(dict_exchange_rate[currency_str])
+    logger.info("Стоимость %s успешно определена.", currency_str)
+    return result
 
 
 def output_final_result(date: str) -> str:
@@ -276,54 +375,81 @@ def output_final_result(date: str) -> str:
     Далее функция top_transactions выводит топ транзакции, в данном случае топ 5.
     Далее функция read_json_file читает json-файл.
     Далее функция exchange_rates определят курс валют.
-    Далее функция dollar_to_ruble_price выводит цену за 1 даллар в рублях.
+    Далее функция dollar_to_ruble_price выводит цену за 1 доллар в рублях.
     Далее функция stock_prices определяет стоимость акции.
     """
 
-    greeting = greetings(date)  # функция приветствия
+    try:
+        greeting = greetings(date)  # функция приветствия
+        logger.info("Функция greetings успешно отработала.")
 
-    range_date = date_range(date)  # функция определяющая временной диапазон
-    df = read_excel_file(EXCEL_PATH)  # функция читающая excel-файл
-    filter_by_time_range = data_from_time_range(df, range_date)  # фильтрация по дате
-    check_column(filter_by_time_range)  # проверка на наличие столбца "Сумма платежа"
-    # Ниже оставляет в DataFrame только те строки, где значение в колонке "Сумма платежа" < 0
-    negative_transactions = filter_negative_transactions(filter_by_time_range)
-    cards_information = cards_info(negative_transactions)  # информация о картах
+        range_date = date_range(date)  # функция определяющая временной диапазон
+        logger.info("Функция date_range успешно отработала.")
 
-    # Ниже выводит топ 5 транзакции
-    top_five_transactions = top_transactions(negative_transactions, 5)
-    result_top_five_transactions = [
-        {
-            "date": transaction["Дата платежа"],
-            "amount": abs(transaction["Сумма платежа"]),
-            "category": transaction["Категория"],
-            "description": transaction["Описание"],
+        df = read_excel_file(EXCEL_PATH)  # функция читающая excel-файл
+        logger.info("Функция read_excel_file успешно отработала.")
+
+        filter_by_time_range = data_from_time_range(df, range_date)  # фильтрация по дате
+        logger.info("Функция data_from_time_range успешно отработала.")
+
+        check_column(filter_by_time_range)  # проверка на наличие столбца "Сумма платежа"
+        logger.info("Функция check_column успешно отработала.")
+
+        # Ниже оставляет в DataFrame только те строки, где значение в колонке "Сумма платежа" < 0
+        negative_transactions = filter_negative_transactions(filter_by_time_range)
+        logger.info("Функция filter_negative_transactions успешно отработала.")
+
+        cards_information = cards_info(negative_transactions)  # информация о картах
+        logger.info("Функция cards_info успешно отработала.")
+
+        # Ниже выводит топ 5 транзакции
+        top_five_transactions = top_transactions(negative_transactions, 5)
+        logger.info("Функция top_transactions успешно отработала.")
+        result_top_five_transactions = [
+            {
+                "date": transaction["Дата платежа"],
+                "amount": abs(transaction["Сумма платежа"]),
+                "category": transaction["Категория"],
+                "description": transaction["Описание"],
+            }
+            for transaction in top_five_transactions
+        ]
+        logger.info("Список - топ 5 транзакции, сформирован.")
+
+        json_file = read_json_file(JSON_PATH)  # читает json-файл
+        logger.info("Функция read_json_file успешно отработала.")
+
+        list_currencies = json_file["user_currencies"]  # выводит список валют
+        logger.info("Список валют сформирован.")
+
+        currency_rates = exchange_rates(list_currencies)  # определят курс валют
+        logger.info("Функция exchange_rates успешно отработала.")
+
+        dol_price = dollar_to_ruble_price(currency_rates)  # выводит цену за 1 доллар в рублях
+        logger.info("Функция dollar_to_ruble_price успешно отработала.")
+
+        # Ниже создаю итоговые словари с валютами
+        result_currency_rates = [
+            {"currency": "USD", "rate": currency_rates.get("USD", "ошибка")},
+            {"currency": "EUR", "rate": currency_rates.get("EUR", "ошибка")},
+        ]
+        logger.info("Список итоговых словарей со стоимостью USD и EUR успешно сформирован.")
+
+        list_stocks = json_file["user_stocks"]  # выводи список акции
+        stocks_prices = stock_prices(list_stocks, dol_price)  # определяет стоимость акции
+        logger.info("Функция stock_prices успешно отработала.")
+
+        # ниже вывожу итоговый результат
+        final_result = {
+            "greeting": greeting,
+            "cards": cards_information,
+            "top_transactions": result_top_five_transactions,
+            "currency_rates": result_currency_rates,
+            "stock_prices": stocks_prices,
         }
-        for transaction in top_five_transactions
-    ]
 
-    json_file = read_json_file(JSON_PATH)  # читает json-файл
+        return json.dumps(final_result, indent=4, ensure_ascii=False)
 
-    list_currencies = json_file["user_currencies"]  # выводит список валют
-    currency_rates = exchange_rates(list_currencies)  # определят курс валют
-    dol_price = dollar_to_ruble_price(currency_rates)  # выводит цену за 1 даллар в рублях
-
-    # Ниже создаю итоговые словари с валютами
-    result_currency_rates = [
-        {"currency": "USD", "rate": currency_rates.get("USD", "ошибка")},
-        {"currency": "EUR", "rate": currency_rates.get("EUR", "ошибка")},
-    ]
-
-    list_stocks = json_file["user_stocks"]  # выводи список акции
-    stocks_prices = stock_prices(list_stocks, dol_price)  # определяет стоимость акции
-
-    # ниже вывожу итоговый результат
-    final_result = {
-        "greeting": greeting,
-        "cards": cards_information,
-        "top_transactions": result_top_five_transactions,
-        "currency_rates": result_currency_rates,
-        "stock_prices": stocks_prices,
-    }
-
-    return json.dumps(final_result, indent=4, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}")
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
