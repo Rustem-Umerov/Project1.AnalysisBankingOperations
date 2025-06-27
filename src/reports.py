@@ -6,7 +6,7 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 
 from src.logging import get_logger
-from src.views import data_from_time_range, filter_negative_transactions, read_excel_file
+from src.utils import data_from_time_range, filter_negative_transactions, read_excel_file
 
 logger = get_logger(__name__)
 

@@ -5,7 +5,7 @@ from typing import Union
 import pandas as pd
 
 from src.logging import get_logger
-from src.views import read_excel_file
+from src.utils import read_excel_file
 
 logger = get_logger(__name__)
 
