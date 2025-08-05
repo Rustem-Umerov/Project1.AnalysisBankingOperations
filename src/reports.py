@@ -21,7 +21,7 @@ def date_range_calculation(date_str: Optional[str] = None, frmt: str = "%d.%m.%Y
     :return: Дата, которая будет концом временного диапазона.
     """
 
-    if not isinstance(date_str, str):
+    if date_str is not None and not isinstance(date_str, str):
         raise TypeError(f"date_str должен быть str или None, а получен {type(date_str).__name__}")
 
     if date_str:

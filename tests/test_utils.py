@@ -260,7 +260,7 @@ def test_check_column_custom_column_success() -> None:
     check_column(df, expected_column="Итого")
 
 
-def test_check_column_missing_column():
+def test_check_column_missing_column() -> None:
     """Тест проверяет, что будет ошибка KeyError, если в DataFrame нет нужной колонки."""
 
     df = pd.DataFrame({"Другое": [100, 200]})
