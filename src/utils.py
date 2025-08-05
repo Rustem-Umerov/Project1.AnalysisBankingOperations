@@ -27,7 +27,7 @@ def date_range(input_date: str) -> tuple[datetime, datetime]:
     - дата из входной строки с обнулённым временем (полночь)."""
 
     if not isinstance(input_date, str):
-        raise TypeError(f"input_date должен быть str, а получен {type(input_date).__name__}")
+        raise TypeError(f"Дата должна быть строкой(str), а получен {type(input_date).__name__}")
 
     try:
         date_obj = datetime.strptime(input_date, "%d.%m.%Y %H:%M:%S")
@@ -338,8 +338,8 @@ def stock_prices(list_stocks: list, dol_price: float) -> list:
 def dollar_to_ruble_price(dict_exchange_rate: dict, currency_str: str = "USD") -> float:
     """Функция получает словарь с курсами валют и возвращает значение по ключу 'USD'"""
 
-    if not isinstance(exchange_rates, dict):
-        raise TypeError(f"exchange_rates должен быть dict, а получен {type(exchange_rates).__name__}")
+    if not isinstance(dict_exchange_rate, dict):
+        raise TypeError(f"dict_exchange_rate должен быть dict, а получен {type(dict_exchange_rate).__name__}")
     if not isinstance(currency_str, str):
         raise TypeError(f"currency должен быть str, а получен {type(currency_str).__name__}")
 
