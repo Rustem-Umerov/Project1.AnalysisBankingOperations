@@ -1,6 +1,6 @@
-import pytest
 import json
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
+
 from src.views import output_final_result
 
 
@@ -11,18 +11,13 @@ from src.views import output_final_result
 @patch("src.views.check_column")
 @patch("src.views.filter_negative_transactions")
 @patch("src.views.cards_info", return_value={"Visa": 2, "MasterCard": 1})
-@patch("src.views.top_transactions", return_value=[
-    {
-        "Дата платежа": "2024-01-10",
-        "Сумма платежа": -150.0,
-        "Категория": "еда",
-        "Описание": "кафе"
-    }
-])
+@patch(
+    "src.views.top_transactions",
+    return_value=[{"Дата платежа": "2024-01-10", "Сумма платежа": -150.0, "Категория": "еда", "Описание": "кафе"}],
+)
 @patch("src.views.read_json_file", return_value={
-    "user_currencies": ["USD", "EUR"],
-    "user_stocks": ["AAPL", "TSLA"]
-})
+    "user_currencies": ["USD", "EUR"], "user_stocks": ["AAPL", "TSLA"]}
+       )
 @patch("src.views.exchange_rates", return_value={"USD": 90.5, "EUR": 98.2})
 @patch("src.views.dollar_to_ruble_price", return_value=90.5)
 @patch("src.views.stock_prices", return_value={"AAPL": 18000, "TSLA": 22000})
@@ -38,7 +33,7 @@ def test_output_final_result_success(
     mock_json: Mock,
     mock_rates: Mock,
     mock_dollar: Mock,
-    mock_stocks: Mock
+    mock_stocks: Mock,
 ) -> None:
     """
     Проверяет успешное выполнение функции output_final_result и корректность структуры JSON.
@@ -58,10 +53,7 @@ def test_output_final_result_success(
 
 @patch("src.views.greetings", side_effect=RuntimeError("Ошибка приветствия"))
 @patch("src.views.logger")
-def test_output_final_result_exception(
-    mock_logger: Mock,
-    mock_greet: Mock
-) -> None:
+def test_output_final_result_exception(mock_logger: Mock, mock_greet: Mock) -> None:
     """
     Проверяет, что при исключении внутри функции возвращается JSON с ключом 'error' и логируется ошибка.
     """
